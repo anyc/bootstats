@@ -1,0 +1,74 @@
+[general]
+### sigrok settings
+# sr_driver=fx2lafw
+# sr_device=
+# sr_channels=D7
+
+# serial-device=/dev/ttyUSB0
+
+### commands to en/disable power supply
+# poweron=toggle_power.sh 1
+# poweroff=toggle_power.sh 0
+manual-power=1
+
+# seconds to wait until power is enabled again
+cooldown=2
+
+iterations=10
+
+#ref-file=myreference.txt
+#show-reference=1
+
+# show-console=1
+# indent-console=1
+
+color=1
+
+[trigger_spl]
+trigger=U-Boot SPL
+
+[trigger_uboot]
+trigger=U-Boot 20
+
+[trigger_uboot_prompt]
+trigger=Hit any key
+
+[trigger_ubi_attached]
+trigger=ubi0: attached
+before=startkernel
+
+[trigger_ubi_attached_kernel]
+trigger=ubi0: attached
+after=startkernel
+
+[trigger_startkernel]
+trigger=Starting kernel
+
+[trigger_kernel_start_init]
+trigger=Linux version
+
+[trigger_userspace_start]
+trigger=as init process
+
+[trigger_ethup]
+trigger=Link is Up
+
+[trigger_welcome]
+trigger=Welcome to
+
+[trigger_login_prompt]
+trigger=login:
+powerCycle=1
+
+
+[interval_uboot_complete]
+from=power_on
+to=startkernel
+
+[interval_kernel_complete]
+from=startkernel
+to=userspace_start
+
+[interval_userspace_login]
+from=userspace_start
+to=distro
