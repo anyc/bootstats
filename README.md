@@ -11,8 +11,7 @@ get the precise time the board is powered on.
 See also [grabserial](https://github.com/tbird20d/grabserial) if you look for
 a similar tool.
 
-Dependencies:
- * serial_asyncio
+Optional dependencies:
  * sigrok python bindings
 
 Examples
@@ -56,11 +55,11 @@ trigger=Welcome to
 powerCycle=1
 ```
 
-The last part of the resulting output would look like this:
+The last part of the resulting output could look like this:
 ```
-Result        power_on   0.026981   0.006456
-Result             SPL   0.062087   0.006563
-Result           Uboot   0.092087   0.006213
-Result     StartKernel   4.567868   0.005712
-Result       OSWelcome  12.590905   0.161515
+        power_on   0.026981   0.006456
+             SPL   0.062087   0.006563
+           Uboot   0.092087   0.006213
+     StartKernel   4.567868   0.005712
+       OSWelcome  12.590905   0.161515
 ```
