@@ -110,7 +110,13 @@ if args.config:
 		for action in parser._actions:
 			for arg in action.option_strings:
 				name = arg.lstrip("-")
-				if name in config["general"]:
+				if (
+					name in config["general"]
+					and (
+						not hasattr(args, name)
+						or getattr(args, name) == action.default
+						)
+					):
 					setattr(args, name.replace("-", "_"), config["general"][name])
 
 args.cooldown = int(args.cooldown)
