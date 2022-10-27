@@ -11,6 +11,9 @@
 # poweroff=toggle_power.sh 0
 manual-power=1
 
+### enable journald matching
+# journald=1
+
 # seconds to wait until power is enabled again
 cooldown=2
 
@@ -72,3 +75,7 @@ to=userspace_start
 [interval_userspace_login]
 from=userspace_start
 to=distro
+
+# use a regular 
+[jtrigger_wifi_connected]
+regexp=.*STA ..:..:..:..:..:.. IEEE 802.11: associated

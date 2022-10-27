@@ -93,6 +93,8 @@ parser.add_argument("--pipe", help="create a named pipe that receives a copy of 
 parser.add_argument("--ref-file", help="provide a reference file with previously measured values")
 parser.add_argument("--show-reference", action="store_true", help="also show values from reference file")
 
+parser.add_argument("--journald", action="store_true")
+
 parser.add_argument("-v", "--verbose", action="count", default=0)
 
 args = parser.parse_args()
@@ -119,7 +121,7 @@ if args.config:
 					):
 					setattr(args, name.replace("-", "_"), config["general"][name])
 
-args.cooldown = int(args.cooldown)
+args.cooldown = float(args.cooldown)
 
 if args.pipe:
 	os.mkfifo(args.pipe)
@@ -220,6 +222,8 @@ class MRun():
 		
 		for mname in self.mpoints:
 			self.mpoints[mname]["matched"] = False
+		for mname in self.jpoints:
+			self.jpoints[mname]["matched"] = False
 		
 		if args.serial_log_file:
 			global serial_log_fd
@@ -292,7 +296,9 @@ class MRun():
 				bsprint("unexpected state change to", state)
 	
 	# new line received from serial device
-	def newLine(self, ts, line):
+	def newLine(self, ts, line, journald=False):
+		from re import match as re_match
+		
 		global named_pipe
 		
 		found = False
@@ -331,18 +337,26 @@ class MRun():
 		if self.start_ts is None:
 			return
 		
-		for mname, mdict in self.mpoints.items():
-			if "trigger" in mdict and line.find(mdict["trigger"]) > -1:
-				before = self.mpoints[mname]["config"].get("before", "")
+		if journald:
+			trig_dicts = self.jpoints
+		else:
+			trig_dicts = self.mpoints
+		
+		for mname, mdict in trig_dicts.items():
+			if (
+				"trigger" in mdict and line.find(mdict["trigger"]) > -1
+				or "regexp" in mdict and re_match(mdict["regexp"], line)
+				):
+				before = trig_dicts[mname]["config"].get("before", "")
 				if before and before in self.history and len(self.history[before]) >= iterations+1:
 					continue
 				
-				after = self.mpoints[mname]["config"].get("after", "")
+				after = trig_dicts[mname]["config"].get("after", "")
 				if after and (after not in self.history or len(self.history[after]) < iterations+1):
 					continue
 				
 				found = True
-				pretty_name = self.mpoints[mname].get("name")
+				pretty_name = trig_dicts[mname].get("name")
 				name = mname
 				break
 		
@@ -354,20 +368,20 @@ class MRun():
 			
 			# have we seen this trigger already in this run?
 			if len(self.history[name]) > iterations:
-				if int(self.mpoints[mname]["config"].get("multi_trigger", "0")):
+				if int(trig_dicts[mname]["config"].get("multi_trigger", "0")):
 					i = 2
 					while True:
 						new_name = name+"_"+str(i)
 						if new_name not in self.history:
 							self.history[new_name] = []
 						if len(self.history[new_name]) == iterations:
-							self.mpoints[new_name] = self.mpoints[name].copy()
-							self.mpoints[new_name]["name"] += " "+str(i)
+							trig_dicts[new_name] = trig_dicts[name].copy()
+							trig_dicts[new_name]["name"] += " "+str(i)
 							name = new_name
-							pretty_name = self.mpoints[new_name]["name"]
+							pretty_name = trig_dicts[new_name]["name"]
 							break
 						i += 1
-				elif int(self.mpoints[mname]["config"].get("ignore_multiple_trigger", "0")):
+				elif int(trig_dicts[mname]["config"].get("ignore_multiple_trigger", "0")):
 					return
 				else:
 					bsprint(f"received \"{name}\" multiple times, ignoring (set multi_trigger=1 to accept multiple values)", file=sys.stderr)
@@ -378,8 +392,8 @@ class MRun():
 			self.last_ts = ts
 			self.history[name].append(ts - self.start_ts)
 			
-			if "intervals" in self.mpoints[mname]:
-				for inter_name in self.mpoints[mname]["intervals"]:
+			if "intervals" in trig_dicts[mname]:
+				for inter_name in trig_dicts[mname]["intervals"]:
 					inter = self.mintervals[inter_name]
 					
 					if inter_name not in self.history:
@@ -394,18 +408,18 @@ class MRun():
 							
 							print("%*s %10s  (delta %10.6f)" % (self.max_name_length, self.mintervals[inter_name]["name"], "", self.history[inter_name][-1]))
 			
-			self.mpoints[name]["matched"] = True
+			trig_dicts[name]["matched"] = True
 			
 			# check if all triggers were matchewd during this run or if a "powerOff"
 			# trigger matched
 			stop = True
-			for mname in self.mpoints:
-				if "trigger" not in self.mpoints[mname]:
+			for mname in trig_dicts:
+				if "trigger" not in trig_dicts[mname] and "regexp" not in trig_dicts[mname]:
 					continue
-				if not self.mpoints[mname]["matched"]:
+				if not trig_dicts[mname]["matched"]:
 					stop = False
-				elif self.mpoints[mname]["config"].get("powerCycle", "0") == "1":
-					delay_poweroff = int(self.mpoints[mname]["config"].get("powerCycleAfter", "0"))
+				elif trig_dicts[mname]["config"].get("powerCycle", "0") == "1":
+					delay_poweroff = int(trig_dicts[mname]["config"].get("powerCycleAfter", "0"))
 					stop = True
 					break
 			
@@ -962,6 +976,53 @@ if False:
 	
 	eloop.set_exception_handler(custom_exception_handler)
 
+if True:
+	from systemd import journal
+	
+	mrun.jpoints = {}
+	for sect in config.sections():
+		if sect.startswith("jtrigger_"):
+			name = sect[len("jtrigger_"):]
+			
+			mrun.jpoints[name] = { "config": config[sect] }
+			if "trigger" in config[sect]:
+				mrun.jpoints[name]["trigger"] = config[sect]["trigger"].encode()
+			
+			if "regexp" in config[sect]:
+				mrun.jpoints[name]["regexp"] = config[sect]["regexp"].encode()
+			
+			if config[sect].get("name", None):
+				mrun.jpoints[name]["name"] = config[sect].get("name")
+			else:
+				mrun.jpoints[name]["name"] = name.replace("_", " ")
+	
+	j = journal.Reader()
+	j.log_level(journal.LOG_INFO)
+	#j.add_match(SYSLOG_IDENTIFIER="kernel")
+	#j.add_match("_SYSTEMD_UNIT=hos
+	j.seek_tail()
+	j.get_previous()
+	
+	async def process_journal(event):
+		if not mrun.measuring:
+			return
+		print(event["MESSAGE"])
+		ts = datetime.datetime.now().timestamp()
+		
+		mrun.newLine(ts, event["MESSAGE"].encode(), journald=True)
+		
+		#msg = event["MESSAGE"]
+		#for jpoint, jdict in self.jpoints.items():
+			#if "trigger" in jdict and msg.find(jdict["trigger"]) > -1:
+				
+	
+	def journal_event():
+		j.process()
+		for entry in j:
+			asyncio.ensure_future(process_journal(entry))
+	
+	eloop.add_reader(j.fileno(), journal_event)
+
 eloop.run_forever()
 
 global_stop = True
@@ -1057,6 +1118,9 @@ for mpoint in mrun.history:
 	if mpoint in mrun.mpoints:
 		results[mpoint] = {"name": mrun.mpoints[mpoint]["name"], "dur": None}
 		share = None
+	elif mpoint in mrun.jpoints:
+		results[mpoint] = {"name": mrun.jpoints[mpoint]["name"], "dur": None}
+		share = None
 	else:
 		results[mpoint] = {"name": mrun.mintervals[mpoint]["name"], "dur": avg, "avg": None}
 		
@@ -1086,6 +1150,8 @@ for mpoint in results:
 	
 	if mpoint in mrun.mpoints:
 		pretty_name = mrun.mpoints[mpoint].get("name", "")
+	elif mpoint in mrun.jpoints:
+		pretty_name = mrun.jpoints[mpoint].get("name", "")
 	else:
 		pretty_name = mrun.mintervals[mpoint].get("name", "")
 	
@@ -1125,6 +1191,8 @@ if args.ref_file:
 		for mpoint in results:
 			if mpoint in mrun.mpoints:
 				pretty_name = mrun.mpoints[mpoint].get("name", "")
+			elif mpoint in mrun.jpoints:
+				pretty_name = mrun.jpoints[mpoint].get("name", "")
 			else:
 				pretty_name = mrun.mintervals[mpoint].get("name", "")
 			
@@ -1157,6 +1225,8 @@ if args.ref_file:
 				
 				if mpoint in mrun.mpoints:
 					pretty_name = mrun.mpoints[mpoint].get("name", "")
+				if mpoint in mrun.jpoints:
+					pretty_name = mrun.jpoints[mpoint].get("name", "")
 				else:
 					pretty_name = mrun.mintervals[mpoint].get("name", "")
 				

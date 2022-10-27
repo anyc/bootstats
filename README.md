@@ -6,7 +6,12 @@ stages during the boot phase. To get precise measurement results - especially
 during early boot stages like the bootloader - bootstats is not run on the
 to-be-analyzed device but on a separate device and it checks the UART output for
 configured string patterns. In addition, a sigrok-supported probe can be used to
-get the precise time the board is powered on.
+get the precise time the board is powered on - e.g., if the power is enabled
+over a remote-controlled power outlet.
+
+If the device that runs bootstats provides network services to the device under
+test, bootstats can also monitor the local system log for interesting events
+like connection attempts.
 
 See also [grabserial](https://github.com/tbird20d/grabserial) if you look for
 a similar tool.
