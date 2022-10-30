@@ -6,9 +6,10 @@
 # License: MIT
 #
 
-import sys, argparse, datetime, time, threading, signal, functools, os
+import sys, argparse, datetime, time, threading, signal, functools, os, functools
 import configparser, pprint
 from math import floor
+from re import match as re_match
 
 import asyncio
 
@@ -93,7 +94,7 @@ parser.add_argument("--pipe", help="create a named pipe that receives a copy of 
 parser.add_argument("--ref-file", help="provide a reference file with previously measured values")
 parser.add_argument("--show-reference", action="store_true", help="also show values from reference file")
 
-parser.add_argument("--journald", action="store_true")
+parser.add_argument("--default-source", default="serial")
 
 parser.add_argument("-v", "--verbose", action="count", default=0)
 
@@ -137,11 +138,39 @@ except ImportError:
 	def color(text, *args, **kwargs):
 		return text
 
+class Timer:
+	def __init__(self, timeout, callback):
+		self._timeout = timeout
+		self._callback = callback
+		self._task = asyncio.run_coroutine_threadsafe(self._job(), eloop)
+	
+	async def _job(self):
+		await asyncio.sleep(self._timeout)
+		await self._callback()
+	
+	def cancel(self):
+		self._task.cancel()
+
+available_tasks = {}
+for fname in os.listdir("."):
+	r = re_match("^task_([-_0-9a-z]+).py$", fname)
+	if r:
+		# eval does not like async
+		if False:
+			with open(fname) as f:
+				eval(f.read())
+		
+		from importlib.machinery import SourceFileLoader
+		task = SourceFileLoader(name, fname).load_module()
+		task.init(globals(), r.group(1))
+		available_tasks[r.group(1)] = { "module": task, "name": r.group(1) }
+
 class MRun():
 	def __init__(self):
 		self.history = {}
 		self.mpoints = {}
 		self.mintervals = {}
+		self.tasks = {}
 		self.data = b""
 		
 		self.start_ts = None
@@ -175,7 +204,11 @@ class MRun():
 			if sect.startswith("trigger_"):
 				name = sect[len("trigger_"):]
 				
-				self.mpoints[name] = { "trigger": config[sect]["trigger"].encode(), "config": config[sect] }
+				self.mpoints[name] = { "config": config[sect] }
+				if "trigger" in config[sect]:
+					self.mpoints[name]["trigger"] = config[sect]["trigger"].encode()
+				else:
+					self.mpoints[name]["trigger"] = name.encode()
 				
 				if self.mpoints[name]["trigger"] in triggers:
 					triggers[self.mpoints[name]["trigger"]].append(name)
@@ -200,6 +233,19 @@ class MRun():
 				
 				self.mintervals[name]["from"] = config[sect].get("from")
 				self.mintervals[name]["to"] = config[sect].get("to")
+			if sect.startswith("task_"):
+				name = sect[len("task_"):]
+				
+				if name not in available_tasks:
+					print("no task", name, "found", file=sys.stderr)
+					sys.exit(1)
+				
+				self.tasks[name] = available_tasks[name]
+				
+				if config[sect].get("name", None):
+					self.tasks[name]["name"] = config[sect].get("name")
+				else:
+					self.tasks[name]["name"] = name.replace("_", " ")
 		
 		for inter in self.mintervals:
 			if "to" in self.mintervals[inter] and self.mintervals[inter]["to"] in self.mpoints:
@@ -222,8 +268,6 @@ class MRun():
 		
 		for mname in self.mpoints:
 			self.mpoints[mname]["matched"] = False
-		for mname in self.jpoints:
-			self.jpoints[mname]["matched"] = False
 		
 		if args.serial_log_file:
 			global serial_log_fd
@@ -296,9 +340,7 @@ class MRun():
 				bsprint("unexpected state change to", state)
 	
 	# new line received from serial device
-	def newLine(self, ts, line, journald=False):
-		from re import match as re_match
-		
+	def newLine(self, ts, line, source=None):
 		global named_pipe
 		
 		found = False
@@ -337,12 +379,15 @@ class MRun():
 		if self.start_ts is None:
 			return
 		
-		if journald:
-			trig_dicts = self.jpoints
-		else:
-			trig_dicts = self.mpoints
+		trig_dicts = self.mpoints
 		
 		for mname, mdict in trig_dicts.items():
+			if "config" in mdict:
+				if "source" not in mdict["config"] and source != args.default_source:
+					continue
+				if "source" in mdict["config"] and mdict["config"]["source"] != source:
+					continue
+			
 			if (
 				"trigger" in mdict and line.find(mdict["trigger"]) > -1
 				or "regexp" in mdict and re_match(mdict["regexp"], line)
@@ -409,6 +454,19 @@ class MRun():
 							print("%*s %10s  (delta %10.6f)" % (self.max_name_length, self.mintervals[inter_name]["name"], "", self.history[inter_name][-1]))
 			
 			trig_dicts[name]["matched"] = True
+			
+			if "start_task" in trig_dicts[mname]["config"]:
+				tname = trig_dicts[mname]["config"]["start_task"]
+				if tname in self.tasks:
+					if args.verbose:
+						bsprint("starting task", tname)
+					self.tasks[tname]["module"].start(mname, self.tasks[tname])
+			if "stop_task" in trig_dicts[mname]["config"]:
+				tname = trig_dicts[mname]["config"]["stop_task"]
+				if tname in self.tasks:
+					if args.verbose:
+						bsprint("stopping task", tname)
+					self.tasks[tname]["module"].stop(mname, self.tasks[tname])
 			
 			# check if all triggers were matchewd during this run or if a "powerOff"
 			# trigger matched
@@ -736,7 +794,7 @@ if use_serial_async:
 				newline_idx = self.buf.find(b"\n")
 				if newline_idx > -1:
 					if mrun.measuring:
-						mrun.newLine(ts, self.buf[:newline_idx])
+						mrun.newLine(ts, self.buf[:newline_idx], source="serial")
 					self.buf = self.buf[newline_idx+1:]
 				else:
 					break
@@ -884,9 +942,7 @@ else:
 					
 					if d == b"\n":
 						if mrun.measuring:
-							#mrun.newLine(ts, buf)
-							#f = functools.partial(mrun.newLine, ts, buf)
-							eloop.call_soon_threadsafe(mrun.newLine, ts, buf)
+							eloop.call_soon_threadsafe(functools.partial(mrun.newLine, ts, buf, source="serial"))
 						
 						if last_ts and (delta_min is None or ts - last_ts < delta_min):
 							delta_min = ts - last_ts
@@ -945,7 +1001,7 @@ else:
 								
 								#mrun.newLine(line_ts, line)
 								
-								eloop.call_soon_threadsafe(mrun.newLine, line_ts, line)
+								eloop.call_soon_threadsafe(functools.partial(mrun.newLine, line_ts, line, source="serial"))
 							
 							buf = b""
 							last_newline = i+1
@@ -979,23 +1035,6 @@ if False:
 if True:
 	from systemd import journal
 	
-	mrun.jpoints = {}
-	for sect in config.sections():
-		if sect.startswith("jtrigger_"):
-			name = sect[len("jtrigger_"):]
-			
-			mrun.jpoints[name] = { "config": config[sect] }
-			if "trigger" in config[sect]:
-				mrun.jpoints[name]["trigger"] = config[sect]["trigger"].encode()
-			
-			if "regexp" in config[sect]:
-				mrun.jpoints[name]["regexp"] = config[sect]["regexp"].encode()
-			
-			if config[sect].get("name", None):
-				mrun.jpoints[name]["name"] = config[sect].get("name")
-			else:
-				mrun.jpoints[name]["name"] = name.replace("_", " ")
-	
 	j = journal.Reader()
 	j.log_level(journal.LOG_INFO)
 	#j.add_match(SYSLOG_IDENTIFIER="kernel")
@@ -1006,15 +1045,10 @@ if True:
 	async def process_journal(event):
 		if not mrun.measuring:
 			return
-		print(event["MESSAGE"])
+		
 		ts = datetime.datetime.now().timestamp()
 		
-		mrun.newLine(ts, event["MESSAGE"].encode(), journald=True)
-		
-		#msg = event["MESSAGE"]
-		#for jpoint, jdict in self.jpoints.items():
-			#if "trigger" in jdict and msg.find(jdict["trigger"]) > -1:
-				
+		mrun.newLine(ts, event["MESSAGE"].encode(), source="journald")
 	
 	def journal_event():
 		j.process()
@@ -1029,6 +1063,11 @@ global_stop = True
 
 if args.verbose:
 	bsprint("event loop stopped")
+
+for task in available_tasks.values():
+	task["module"].finish()
+
+eloop.run_until_complete(eloop.shutdown_asyncgens())
 
 if mrun.delayed_poweroff_task:
 	mrun.delayed_poweroff_task.cancel()
@@ -1118,9 +1157,6 @@ for mpoint in mrun.history:
 	if mpoint in mrun.mpoints:
 		results[mpoint] = {"name": mrun.mpoints[mpoint]["name"], "dur": None}
 		share = None
-	elif mpoint in mrun.jpoints:
-		results[mpoint] = {"name": mrun.jpoints[mpoint]["name"], "dur": None}
-		share = None
 	else:
 		results[mpoint] = {"name": mrun.mintervals[mpoint]["name"], "dur": avg, "avg": None}
 		
@@ -1150,8 +1186,6 @@ for mpoint in results:
 	
 	if mpoint in mrun.mpoints:
 		pretty_name = mrun.mpoints[mpoint].get("name", "")
-	elif mpoint in mrun.jpoints:
-		pretty_name = mrun.jpoints[mpoint].get("name", "")
 	else:
 		pretty_name = mrun.mintervals[mpoint].get("name", "")
 	
@@ -1191,8 +1225,6 @@ if args.ref_file:
 		for mpoint in results:
 			if mpoint in mrun.mpoints:
 				pretty_name = mrun.mpoints[mpoint].get("name", "")
-			elif mpoint in mrun.jpoints:
-				pretty_name = mrun.jpoints[mpoint].get("name", "")
 			else:
 				pretty_name = mrun.mintervals[mpoint].get("name", "")
 			
@@ -1225,8 +1257,6 @@ if args.ref_file:
 				
 				if mpoint in mrun.mpoints:
 					pretty_name = mrun.mpoints[mpoint].get("name", "")
-				if mpoint in mrun.jpoints:
-					pretty_name = mrun.jpoints[mpoint].get("name", "")
 				else:
 					pretty_name = mrun.mintervals[mpoint].get("name", "")
 				

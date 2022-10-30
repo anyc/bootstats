@@ -76,6 +76,18 @@ to=userspace_start
 from=userspace_start
 to=distro
 
-# use a regular 
-[jtrigger_wifi_connected]
+# example for a trigger that only matches journald log messages
+[trigger_wifi_connected]
 regexp=.*STA ..:..:..:..:..:.. IEEE 802.11: associated
+source=journald
+# start echo task below if this triggered
+start_task=echo
+
+# setup task "echo" that sends UDP packets to the device and logs the response
+[task_echo]
+port=1234
+dest=10.0.0.2
+
+# measure when the echo task receives a certain response
+[trigger_ping]
+source=task_echo
