@@ -6,7 +6,7 @@
 # License: MIT
 #
 
-import sys, argparse, datetime, time, threading, signal, functools, os, functools
+import sys, argparse, datetime, time, threading, signal, functools, os
 import configparser, pprint
 from math import floor
 from re import match as re_match
