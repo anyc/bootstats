@@ -11,6 +11,9 @@
 # poweroff=toggle_power.sh 0
 manual-power=1
 
+### reboot the target using the SYSRQ of the Linux kernel
+# sysrq-reboot=1
+
 ### enable journald matching
 # journald=1
 

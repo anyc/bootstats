@@ -70,9 +70,10 @@ parser.add_argument("--sr_channels")
 parser.add_argument("--sr_samplerate")
 parser.add_argument("--sr_scan", action="store_true", help="only show available devices for sigrok")
 
-parser.add_argument("--poweron", default="power_toggle.sh 1", help="command to power on the device")
-parser.add_argument("--poweroff", default="power_toggle.sh 0", help="command to power off the device")
+parser.add_argument("--poweron", default="", help="command to power on the device")
+parser.add_argument("--poweroff", default="", help="command to power off the device")
 parser.add_argument("--manual-power", action="store_true", help="this application will wait until the device is powered on or off")
+parser.add_argument("--sysrq-reboot", action="store_true", help="Send SYSRQ reboot sequence to restart device (not recommended)")
 
 parser.add_argument("--serial-device", default="/dev/ttyUSB0")
 parser.add_argument("--serial-baudrate", default=115200)
@@ -1017,6 +1018,17 @@ else:
 	uart_thread.stop = False
 	uart_thread.ser = None
 	uart_thread.start()
+	
+	def send_sysrq_reboot():
+		from time import sleep
+		secs = 1
+		
+		uart_thread.ser.send_break(secs)
+		uart_thread.ser.write(b"u")
+		uart_thread.ser.send_break(secs)
+		uart_thread.ser.write(b"s")
+		uart_thread.ser.send_break(secs)
+		uart_thread.ser.write(b"b")
 
 if args.verbose:
 	bsprint("entering event loop")
