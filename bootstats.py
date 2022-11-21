@@ -262,11 +262,7 @@ class MRun():
 			if self.max_name_length is None or len(self.mpoints[mpoint]["name"]) > self.max_name_length:
 				self.max_name_length = len(self.mpoints[mpoint]["name"])
 	
-	# initiate a new measurement run
-	async def start(self, restart=False):
-		if restart:
-			await asyncio.sleep(args.cooldown)
-		
+	def start(self):
 		for mname in self.mpoints:
 			self.mpoints[mname]["matched"] = False
 		
@@ -288,12 +284,19 @@ class MRun():
 		
 		self.power_on()
 	
+	# initiate a new measurement run
+	async def async_start(self, cooldown=False):
+		if cooldown:
+			await asyncio.sleep(args.cooldown)
+		
+		self.start()
+	
 	def powerChanged(self, state):
 		global iterations, global_stop
 		
-		# we do not show a message every time as we get spurious transitions after
+		# we do not show a message every time as we could get spurious transitions after
 		# powering off
-		if self.measuring:
+		if self.measuring and sigrok_session:
 			if state == "1":
 				bsprint("power is on")
 			elif state == "0":
@@ -322,18 +325,18 @@ class MRun():
 					if args.verbose:
 						bsprint("nothing measured, will ignore power cycle (%8.5f)" %(ts - self.start_ts))
 					
-					self.start_task = asyncio.run_coroutine_threadsafe(mrun.start(True), eloop)
+					self.start_task = asyncio.run_coroutine_threadsafe(self.async_start(True), eloop)
 				else:
 					self.startNewIteration()
 			else:
 				self.measuring = False
 			
-			if self.start_ts:
+			if self.start_ts and sigrok_session:
 				if "power_off" not in self.history:
 					self.history["power_off"] = []
 				self.history["power_off"].append(ts - self.start_ts)
 			
-			if iterations >= int(args.iterations):
+			if iterations >= int(args.iterations)-1:
 				global_stop = True
 				eloop.call_soon_threadsafe(eloop.stop)
 		else:
@@ -496,50 +499,65 @@ class MRun():
 							bsprint("ignoring additional powerOff delay")
 					else:
 						self.power_off()
-				else:
+				elif args.manual_power:
 					bsprint("you can turn off the device now", file=sys.stderr)
+				elif args.sysrq_reboot:
+					self.power_off(repower=False)
+					self.startNewIteration(cooldown=False)
+				else:
+					bsprint("error, no method specified to restart target", file=sys.stderr)
+					sys.exit(1)
 	
 	async def delayed_poweroff(self):
 		self.power_off()
 		self.delayed_poweroff_task = None
 	
-	def power_off(self, initial=False):
+	def power_off(self, repower=True):
 		self.measuring = False
 		
 		if self.powered:
 			if args.verbose:
 				bsprint("powering off")
 			
-			os.system(args.poweroff)
-			if not initial:
+			if args.poweroff:
+				os.system(args.poweroff)
+			if repower:
 				self.startNewIteration()
 			
 			if not sigrok_session:
-				mrun.powered = False
-				mrun.powerChanged("0")
+				self.powered = False
+				self.powerChanged("0")
 	
 	def power_on(self):
 		self.measuring = True
 		
-		if not self.powered:
-			if args.poweron and not args.manual_power:
-				if args.verbose:
-					bsprint("powering on")
-			else:
-				if self.powered:
-					bsprint("you can turn the device off and on now", file=sys.stderr)
-				else:
-					bsprint("you can turn on the device now", file=sys.stderr)
+		if args.sysrq_reboot and not args.poweron and not args.manual_power:
+			bsprint("will reboot using sysrq")
+			self.powering_on_ts = datetime.datetime.now().timestamp()
+			send_sysrq_reboot()
+			
+			self.powered = False
 		
+		if not self.powered:
+			if args.poweron:
+				if not args.manual_power:
+					if args.verbose:
+						bsprint("powering on")
+				else:
+					if self.powered:
+						bsprint("you can turn the device off and on now", file=sys.stderr)
+					else:
+						bsprint("you can turn on the device now", file=sys.stderr)
+			
 			if args.poweron and not args.manual_power:
 				self.powering_on_ts = datetime.datetime.now().timestamp()
 				os.system(args.poweron)
 			
 			if not sigrok_session:
-				mrun.powered = True
-				mrun.powerChanged("1")
+				self.powered = True
+				self.powerChanged("1")
 	
-	def startNewIteration(self):
+	def startNewIteration(self, cooldown=True):
 		global iterations
 		
 		bsprint("iteration", iterations+1, "done")
@@ -550,7 +568,10 @@ class MRun():
 		
 		self.match_in_iteration = False
 		
-		self.start_task = asyncio.run_coroutine_threadsafe(mrun.start(True), eloop)
+		if cooldown:
+			self.start_task = asyncio.run_coroutine_threadsafe(self.async_start(True), eloop)
+		else:
+			self.start()
 
 mrun = MRun()
 mainlock = threading.Lock()
@@ -661,7 +682,7 @@ if args.sr_scan or args.sr_driver or args.sr_device or args.sr_channels:
 				
 				startup_counter |= 1
 				if startup_counter == 3:
-					asyncio.run_coroutine_threadsafe(mrun.start(), eloop)
+					asyncio.run_coroutine_threadsafe(mrun.async_start(), eloop)
 			
 			return
 		
@@ -711,9 +732,12 @@ else:
 	sr_thread = None
 	sigrok_device = None
 	
+	if not args.manual_power:
+		mrun.powered = True
+	
 	startup_counter |= 1
 	if startup_counter == 3:
-		asyncio.run_coroutine_threadsafe(mrun.start(), eloop)
+		asyncio.run_coroutine_threadsafe(mrun.async_start(), eloop)
 
 if args.poweroff and not args.manual_power:
 	if args.verbose:
@@ -721,7 +745,7 @@ if args.poweroff and not args.manual_power:
 	
 	# make sure the device is off at the beginning
 	mrun.powered=True
-	mrun.power_off(initial=True)
+	mrun.power_off(repower=False)
 	
 	time.sleep(args.cooldown)
 
@@ -756,7 +780,7 @@ if use_serial_async:
 				if (startup_counter & 2) == 0:
 					startup_counter |= 2
 					if startup_counter == 3:
-						asyncio.run_coroutine_threadsafe(mrun.start(), eloop)
+						asyncio.run_coroutine_threadsafe(mrun.async_start(), eloop)
 
 		def data_received(self, data):
 			global named_pipe, delta_min
@@ -839,7 +863,7 @@ if use_serial_async:
 						
 						# we assume that the serial is only available when the board is powered, so
 						# we start now even if serial is not present
-						asyncio.run_coroutine_threadsafe(mrun.start(), eloop)
+						asyncio.run_coroutine_threadsafe(mrun.async_start(), eloop)
 			
 			async def wait_on_device():
 				while True:
@@ -905,7 +929,7 @@ else:
 								
 								# we assume that the serial is only available when the board is powered, so
 								# we start now even if serial is not present
-								asyncio.run_coroutine_threadsafe(mrun.start(), eloop)
+								asyncio.run_coroutine_threadsafe(mrun.async_start(), eloop)
 			
 			if args.verbose:
 				bsprint("UART connected")
@@ -914,7 +938,7 @@ else:
 				if (startup_counter & 2) == 0:
 					startup_counter |= 2
 					if startup_counter == 3:
-						asyncio.run_coroutine_threadsafe(mrun.start(), eloop)
+						asyncio.run_coroutine_threadsafe(mrun.async_start(), eloop)
 			
 			last_ts = None
 			ts = None
