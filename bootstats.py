@@ -126,6 +126,15 @@ if args.config:
 
 args.cooldown = float(args.cooldown)
 
+if (
+	(not args.poweron or not args.poweroff)
+	and not (args.manual_power or args.sysrq_reboot)
+	and not args.sr_monitor
+	and not args.sr_scan
+	):
+	bsprint("either specify manual-power of sysrq-reboot if poweron or poweroff is missing")
+	sys.exit(1)
+
 if args.pipe:
 	os.mkfifo(args.pipe)
 	named_pipe = open(args.pipe, 'w')
