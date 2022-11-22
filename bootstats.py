@@ -360,8 +360,8 @@ class MRun():
 			if args.verbose:
 				bsprint("unexpected state change to", state)
 	
-	def newLines(self, ts, lines, source=None):
-		for line in lines:
+	def newLines(self, lines, source=None):
+		for ts, line in lines:
 			self.newLine(ts, line, source=source)
 			
 			if mrun.flush_input:
@@ -1012,7 +1012,7 @@ else:
 			
 			last_ts = None
 			ts = None
-			buf_ts = None
+			last_buf_ts = None
 			buf = b""
 			while not uart_thread.stop and not global_stop:
 				if single_byte:
@@ -1082,35 +1082,33 @@ else:
 					if args.verbose > 1:
 						bsprint("UART RX %d bytes" % len(data), ts=ts)
 					
-					if buf:
-						line_ts = buf_ts
-					else:
-						line_ts = ts
-					
 					lines = []
 					last_newline = 0
 					for i in range(len(data)):
 						if data[i] == ord("\n"):
-							#if mrun.measuring:
 							line = buf + data[last_newline:i]
 							line = bytes(filter(lambda x: x >= 32, line))
-								#eloop.call_soon_threadsafe(functools.partial(mrun.newLine, line_ts, line, source="serial"))
 							
 							if mrun.measuring:
-								lines.append(line)
+								if buf:
+									lines.append([last_buf_ts, line])
+									last_buf_ts = None
+								else:
+									lines.append([ts, line])
 							
 							buf = b""
 							last_newline = i+1
 					
 					if lines:
-						eloop.call_soon_threadsafe(functools.partial(mrun.newLines, line_ts, lines, source="serial"))
+						eloop.call_soon_threadsafe(functools.partial(mrun.newLines, lines, source="serial"))
 					
 					if mrun.flush_input:
 						continue
 					
 					if last_newline < len(data):
-						buf = data[last_newline:]
-						buf_ts = ts
+						buf += data[last_newline:]
+						if last_buf_ts is None:
+							last_buf_ts = ts
 		
 		if args.verbose:
 			bsprint("serial thread stopped")
