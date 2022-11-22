@@ -9,9 +9,12 @@
 ### commands to en/disable power supply
 # poweron=toggle_power.sh 1
 # poweroff=toggle_power.sh 0
+
+### request the user to en/disable power supply
 manual-power=1
 
-### reboot the target using the SYSRQ of the Linux kernel
+### automatically reboot the device using the SYSRQ of the Linux kernel instead
+### of power-cycling the device
 # sysrq-reboot=1
 
 ### enable journald matching
@@ -22,11 +25,9 @@ cooldown=2
 
 iterations=10
 
-#ref-file=myreference.txt
-#show-reference=1
-
+# ref-file=myreference.txt
+# show-reference=1
 # show-console=1
-# indent-console=1
 
 color=1
 

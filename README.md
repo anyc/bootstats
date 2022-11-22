@@ -37,8 +37,8 @@ Show supported sigrok drivers and available devices:
 bootstats.py  --sr_scan
 ```
 
-Look for string `U-Boot` thirty times and show the average time under the Id
-"U-Boot start":
+Reboot the DUT thirty times, log the occurrence of the string `U-Boot` and
+show the average time under the Id "U-Boot start":
 ```
 bootstats.py  --iterations 30 --trigger "U-Boot start:U-Boot"
 ```
@@ -50,9 +50,11 @@ following can be created:
 [general]
 # use sigrok channel D7 to wait on power events
 sr_channels=D7
-# execute the following commands to power on/off the device
+# execute the following commands to automatically power on/off the device
 poweron=power_toggle.sh 1
 poweroff=power_toggle.sh 0
+
+iterations=3
 
 # measure time when "U-Boot SPL" is read and store it under Id "SPL"
 [trigger_SPL]
@@ -72,9 +74,9 @@ powerCycle=1
 
 The last part of the resulting output could look like this:
 ```
-        power_on   0.026981   0.006456
-             SPL   0.062087   0.006563
-           Uboot   0.092087   0.006213
-     StartKernel   4.567868   0.005712
-       OSWelcome  12.590905   0.161515
+Id                         avg        dur        dev   share    max_dev    min_val    max_val weight 
+SPL                   0.082374              0.003136           0.003501   0.078873   0.084924      3 
+Uboot                 0.390254              0.000468           0.000518   0.389862   0.390772      3 
+StartKernel           2.867375              0.000892           0.001029   2.866346   2.867930      3 
+OSWelcome             9.034176              1.659368           1.915773   7.118403  10.021458      3 
 ```
