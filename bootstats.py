@@ -69,6 +69,7 @@ parser.add_argument("--sr_device", help="default: first available device")
 parser.add_argument("--sr_channels")
 parser.add_argument("--sr_samplerate")
 parser.add_argument("--sr_scan", action="store_true", help="only show available devices for sigrok")
+parser.add_argument("--sr-monitor", action="store_true", help="only dump events of the given sigrok channels")
 
 parser.add_argument("--poweron", default="", help="command to power on the device")
 parser.add_argument("--poweroff", default="", help="command to power off the device")
@@ -588,9 +589,10 @@ def ask_exit(signame):
 	global_stop = True
 	eloop.stop()
 
-for signame in ('SIGINT', 'SIGTERM'):
-	eloop.add_signal_handler(getattr(signal, signame),
-							functools.partial(ask_exit, signame))
+if not args.sr_monitor:
+	for signame in ('SIGINT', 'SIGTERM'):
+		eloop.add_signal_handler(getattr(signal, signame),
+								functools.partial(ask_exit, signame))
 
 ##############
 # setup sigrok
@@ -663,6 +665,13 @@ if args.sr_scan or args.sr_driver or args.sr_device or args.sr_channels:
 		
 		lines = sigrok_output.receive(packet)
 		
+		if args.sr_monitor:
+			for line in lines.split("\n"):
+				if line and lastline and lastline != line:
+					print(line)
+				lastline = line
+			return
+		
 		if lastline is None:
 			for line in lines.split("\n"):
 				if not line:
@@ -727,6 +736,10 @@ if args.sr_scan or args.sr_driver or args.sr_device or args.sr_channels:
 
 	sr_thread = threading.Thread(target=tmain)
 	sr_thread.start()
+	
+	if args.sr_monitor:
+		sr_thread.join()
+		sys.exit(0)
 else:
 	sigrok_session = None
 	sr_thread = None
