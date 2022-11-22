@@ -1319,7 +1319,7 @@ for mpoint in mrun.history:
 results = dict(sorted(results.items(), key=lambda x: results[x[0]]["avg"] if results[x[0]]["avg"] is not None else 0))
 
 # show the column headers
-print("\t%-*s" % (mrun.max_name_length, "Id"), end=" ")
+print("%-*s" % (mrun.max_name_length, "Id"), end=" ")
 for var in stat_names:
 	print((conv[var].replace(".6", "")[:-1]+"s") % var, end=" ")
 print()
@@ -1337,7 +1337,7 @@ for mpoint in results:
 		if key == "name":
 			continue
 	
-	print("\t%-*s" % (mrun.max_name_length, pretty_name), end=" ")
+	print("%-*s" % (mrun.max_name_length, pretty_name), end=" ")
 	for key in stat_names:
 		if results[mpoint][key]:
 			print(conv[key] % results[mpoint][key], end=" ")
@@ -1373,7 +1373,7 @@ if args.ref_file:
 				pretty_name = mrun.mintervals[mpoint].get("name", "")
 			
 			if mpoint not in ref:
-				print("\t%-*s" % (mrun.max_name_length, pretty_name))
+				print("%-*s" % (mrun.max_name_length, pretty_name))
 				continue
 			
 			if mpoint in ["power_on", "power_off"]:
@@ -1384,7 +1384,7 @@ if args.ref_file:
 				if results[mpoint][stat] is not None and ref[mpoint][stat] is not None:
 					diff[stat] = results[mpoint][stat] - ref[mpoint][stat]
 			
-			print("\t%-*s" % (mrun.max_name_length, pretty_name), end=" ")
+			print("%-*s" % (mrun.max_name_length, pretty_name), end=" ")
 			for key in stat_names:
 				if key in diff and diff[key]:
 					print(conv[key] % diff[key], end=" ")
@@ -1404,7 +1404,7 @@ if args.ref_file:
 				else:
 					pretty_name = mrun.mintervals[mpoint].get("name", "")
 				
-				print("\t%-*s" % (mrun.max_name_length, pretty_name), end=" ")
+				print("%-*s" % (mrun.max_name_length, pretty_name), end=" ")
 				for key in stat_names:
 					if ref[mpoint][key]:
 						print(conv[key] % ref[mpoint][key], end=" ")
