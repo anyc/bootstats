@@ -221,15 +221,19 @@ class MRun():
 				self.mpoints[name] = { "config": config[sect] }
 				if "trigger" in config[sect]:
 					self.mpoints[name]["trigger"] = config[sect]["trigger"].encode()
+				elif "regexp" in config[sect]:
+					self.mpoints[name]["regexp"] = config[sect]["regexp"].encode()
 				else:
 					self.mpoints[name]["trigger"] = name.encode()
 				
-				if self.mpoints[name]["trigger"] in triggers:
-					triggers[self.mpoints[name]["trigger"]].append(name)
-					if args.verbose:
-						bsprint("found duplicate trigger:", self.mpoints[name]["trigger"], triggers[self.mpoints[name]["trigger"]])
-				else:
-					triggers[self.mpoints[name]["trigger"]] = [name]
+				# duplicate check
+				if "trigger" in self.mpoints[name]:
+					if self.mpoints[name]["trigger"] in triggers:
+						triggers[self.mpoints[name]["trigger"]].append(name)
+						if args.verbose:
+							bsprint("found duplicate trigger:", self.mpoints[name]["trigger"], triggers[self.mpoints[name]["trigger"]])
+					else:
+						triggers[self.mpoints[name]["trigger"]] = [name]
 				
 				if config[sect].get("name", None):
 					self.mpoints[name]["name"] = config[sect].get("name")
