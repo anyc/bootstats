@@ -416,6 +416,9 @@ class MRun():
 		if self.start_ts is None:
 			return
 		
+		if not self.measuring:
+			return
+		
 		trig_dicts = self.mpoints
 		
 		for mname, mdict in trig_dicts.items():
