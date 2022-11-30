@@ -182,6 +182,7 @@ class MRun():
 		self.mpoints = {}
 		self.mintervals = {}
 		self.tasks = {}
+		self.active_tasks = []
 		self.data = b""
 		
 		self.start_ts = None
@@ -253,7 +254,10 @@ class MRun():
 					print("no task", name, "found", file=sys.stderr)
 					sys.exit(1)
 				
-				self.tasks[name] = available_tasks[name]
+				self.tasks[name] = available_tasks[name].copy()
+				self.tasks[name]["task_name"] = name
+				
+				self.tasks[name].update(config[sect])
 				
 				if config[sect].get("name", None):
 					self.tasks[name]["name"] = config[sect].get("name")
@@ -490,12 +494,16 @@ class MRun():
 					if args.verbose:
 						bsprint("starting task", tname)
 					self.tasks[tname]["module"].start(mname, self.tasks[tname])
+					if self.tasks[tname] not in self.active_tasks:
+						self.active_tasks.append(self.tasks[tname])
 			if "stop_task" in trig_dicts[mname]["config"]:
 				tname = trig_dicts[mname]["config"]["stop_task"]
 				if tname in self.tasks:
 					if args.verbose:
 						bsprint("stopping task", tname)
 					self.tasks[tname]["module"].stop(mname, self.tasks[tname])
+					if self.tasks[tname] in self.active_tasks:
+						self.active_tasks.remove(self.tasks[tname])
 			
 			# check if all triggers were matchewd during this run or if a "powerOff"
 			# trigger matched
@@ -513,6 +521,9 @@ class MRun():
 			if stop:
 				if args.verbose:
 					bsprint("will stop measurement")
+				
+				for task in self.active_tasks:
+					task["module"].stop(task["task_name"], task)
 				
 				if args.poweroff and not args.manual_power:
 					if delay_poweroff > 0:
