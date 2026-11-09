@@ -97,6 +97,7 @@ parser.add_argument("--ref-file", help="provide a reference file with previously
 parser.add_argument("--show-reference", action="store_true", help="also show values from reference file")
 
 parser.add_argument("--default-source", default="serial")
+parser.add_argument("--journald", action="store_true", help="read events from journald")
 
 parser.add_argument("-v", "--verbose", action="count", default=0)
 
@@ -1190,30 +1191,36 @@ if False:
 	
 	eloop.set_exception_handler(custom_exception_handler)
 
-if True:
-	from systemd import journal
-	
-	j = journal.Reader()
-	j.log_level(journal.LOG_INFO)
-	#j.add_match(SYSLOG_IDENTIFIER="kernel")
-	#j.add_match("_SYSTEMD_UNIT=hos
-	j.seek_tail()
-	j.get_previous()
-	
-	async def process_journal(event):
-		if not mrun.measuring:
-			return
+journal_reader = None
+if args.journald:
+	try:
+		from systemd import journal
+		journal_reader = journal.Reader()
+		journal_reader.log_level(journal.LOG_INFO)
+		#j.add_match(SYSLOG_IDENTIFIER="kernel")
+		#j.add_match("_SYSTEMD_UNIT=hos
+		journal_reader.seek_tail()
+		journal_reader.get_previous()
 		
-		ts = datetime.datetime.now().timestamp()
+		async def process_journal(event):
+			if not mrun.measuring:
+				return
+			
+			ts = datetime.datetime.now().timestamp()
+			
+			mrun.newLine(ts, event["MESSAGE"].encode(), source="journald")
 		
-		mrun.newLine(ts, event["MESSAGE"].encode(), source="journald")
-	
-	def journal_event():
-		j.process()
-		for entry in j:
-			asyncio.ensure_future(process_journal(entry))
-	
-	eloop.add_reader(j.fileno(), journal_event)
+		def journal_event():
+			journal_reader.process()
+			for entry in journal_reader:
+				asyncio.ensure_future(process_journal(entry))
+		
+		eloop.add_reader(journal_reader.fileno(), journal_event)
+	except (ImportError, OSError) as exc:
+		if journal_reader:
+			journal_reader.close()
+			journal_reader = None
+		bsprint("journald disabled:", exc, file=sys.stderr)
 
 eloop.run_forever()
 
@@ -1240,6 +1247,8 @@ else:
 	uart_thread.join()
 
 eloop.close()
+if journal_reader:
+	journal_reader.close()
 if sigrok_session:
 	sigrok_session.stop()
 if sr_thread:
