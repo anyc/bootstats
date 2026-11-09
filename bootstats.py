@@ -1069,11 +1069,13 @@ else:
 				else:
 					while not uart_thread.stop and not global_stop:
 						r, w, e = select.select([ser.fileno()], [], [], 0.5)
-						if len(e) == 0 or ser.fileno() in r:
+						if e or ser.fileno() in r:
 							break
 					
 					if e:
 						break
+					if not r:
+						continue
 					
 					try:
 						if True:
@@ -1111,11 +1113,12 @@ else:
 							if mrun.measuring:
 								if buf:
 									lines.append([last_buf_ts, line])
-									last_buf_ts = None
 								else:
 									lines.append([ts, line])
 							
-							buf = b""
+							if buf:
+								buf = b""
+								last_buf_ts = None
 							last_newline = i+1
 					
 					if lines:
