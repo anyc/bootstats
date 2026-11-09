@@ -1245,9 +1245,10 @@ if use_serial_async:
 	if wait_task:
 		wait_task.cancel()
 else:
+	uart_thread.stop = True
+	uart_thread.join()
 	if uart_thread.ser:
 		uart_thread.ser.close()
-	uart_thread.join()
 
 eloop.close()
 if journal_reader:
