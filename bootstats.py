@@ -286,6 +286,9 @@ class MRun():
 	def start(self):
 		global iterations
 		
+		if "uart_thread" in globals():
+			uart_thread.clear_buffer = True
+
 		for mname in self.mpoints:
 			self.mpoints[mname]["matched"] = False
 		
@@ -1034,6 +1037,11 @@ else:
 			last_buf_ts = None
 			buf = b""
 			while not uart_thread.stop and not global_stop:
+				if uart_thread.clear_buffer:
+					buf = b""
+					last_buf_ts = None
+					uart_thread.clear_buffer = False
+
 				if single_byte:
 					try:
 						d = ser.read()
@@ -1139,6 +1147,7 @@ else:
 	uart_thread.started = threading.Condition()
 	uart_thread.stop = False
 	uart_thread.ser = None
+	uart_thread.clear_buffer = False
 	uart_thread.start()
 	
 	def my_break(ser, secs):
